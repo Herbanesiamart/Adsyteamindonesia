@@ -2,4 +2,4 @@
 // Untuk local dev: isi manual sementara, jangan di-commit
 const SUPABASE_URL = '';
 const SUPABASE_ANON_KEY = '';
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
