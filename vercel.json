@@ -1,4 +1,5 @@
 {
   "version": 2,
-  "buildCommand": "echo \"const SUPABASE_URL='${SUPABASE_URL}'; const SUPABASE_ANON_KEY='${SUPABASE_ANON_KEY}'; const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);\" > js/config.js"
+  "buildCommand": "echo \"const SUPABASE_URL='${SUPABASE_URL}'; const SUPABASE_ANON_KEY='${SUPABASE_ANON_KEY}'; const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);\" > js/config.js",
+  "outputDirectory": "."
 }
