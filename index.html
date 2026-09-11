@@ -17,22 +17,54 @@
       <div class="login-subtitle">PT. Albanna Digital Sulaiman Yogyakarta</div>
     </div>
 
+    <!-- Tab Toggle -->
+    <div style="display:flex;background:#f1f5f9;border-radius:10px;padding:4px;margin-bottom:24px;gap:4px;">
+      <button id="tabLogin" onclick="showTab('login')" style="flex:1;padding:8px;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;background:#4f46e5;color:#fff;transition:all .2s;">Masuk</button>
+      <button id="tabDaftar" onclick="showTab('daftar')" style="flex:1;padding:8px;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:#64748b;transition:all .2s;">Daftar</button>
+    </div>
+
+    <!-- Form Login -->
     <form id="loginForm">
       <div class="form-group">
         <label class="form-label" for="email">Email</label>
         <input type="email" id="email" class="form-control" placeholder="nama@albanna.co.id" required autocomplete="email">
       </div>
-
       <div class="form-group" style="margin-bottom:6px;">
         <label class="form-label" for="password">Password</label>
         <input type="password" id="password" class="form-control" placeholder="Masukkan password" required autocomplete="current-password">
       </div>
-
       <div class="login-error" id="loginError"></div>
-
       <button type="submit" class="login-btn" id="loginBtn">
         <span id="loginBtnText">Masuk</span>
       </button>
+    </form>
+
+    <!-- Form Daftar -->
+    <form id="daftarForm" style="display:none;">
+      <div class="form-group">
+        <label class="form-label" for="regNama">Nama Lengkap</label>
+        <input type="text" id="regNama" class="form-control" placeholder="Ahmad Baihaqi" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="regEmail">Email</label>
+        <input type="email" id="regEmail" class="form-control" placeholder="nama@albanna.co.id" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="regPassword">Password</label>
+        <input type="password" id="regPassword" class="form-control" placeholder="Minimal 6 karakter" required minlength="6">
+      </div>
+      <div class="form-group" style="margin-bottom:6px;">
+        <label class="form-label" for="regConfirm">Konfirmasi Password</label>
+        <input type="password" id="regConfirm" class="form-control" placeholder="Ulangi password" required>
+      </div>
+      <div class="login-error" id="daftarError"></div>
+      <div class="login-error" id="daftarSuccess" style="display:none;background:#dcfce7;color:#166534;border-color:#bbf7d0;"></div>
+      <button type="submit" class="login-btn" id="daftarBtn">
+        <span id="daftarBtnText">Buat Akun</span>
+      </button>
+      <p style="text-align:center;font-size:12px;color:#94a3b8;margin-top:12px;">
+        Setelah daftar, HR akan melengkapi data jabatan kamu.
+      </p>
     </form>
 
     <div style="text-align:center;margin-top:20px;font-size:12px;color:#94a3b8;">
@@ -41,6 +73,17 @@
   </div>
 
   <script>
+    // Tab toggle
+    function showTab(tab) {
+      const isLogin = tab === 'login';
+      document.getElementById('loginForm').style.display = isLogin ? '' : 'none';
+      document.getElementById('daftarForm').style.display = isLogin ? 'none' : '';
+      document.getElementById('tabLogin').style.background = isLogin ? '#4f46e5' : 'transparent';
+      document.getElementById('tabLogin').style.color = isLogin ? '#fff' : '#64748b';
+      document.getElementById('tabDaftar').style.background = isLogin ? 'transparent' : '#4f46e5';
+      document.getElementById('tabDaftar').style.color = isLogin ? '#64748b' : '#fff';
+    }
+
     // Check if already logged in
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -50,16 +93,11 @@
           .select('role')
           .eq('user_id', user.id)
           .single();
-        if (emp) {
-          redirectByRole(emp.role);
-        }
+        if (emp) window.location.href = '/dashboard.html';
       }
     })();
 
-    function redirectByRole(role) {
-      window.location.href = '/dashboard.html';
-    }
-
+    // Login
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('email').value.trim();
@@ -76,29 +114,84 @@
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
 
-        // Get employee record
         const { data: emp, error: empError } = await supabase
           .from('employees')
-          .select('role, status, nama')
+          .select('role, status')
           .eq('user_id', data.user.id)
           .single();
 
         if (empError || !emp) {
           await supabase.auth.signOut();
-          throw new Error('Akun karyawan tidak ditemukan. Hubungi HR atau Admin.');
+          throw new Error('Akun karyawan tidak ditemukan. Hubungi HR.');
         }
-
         if (emp.status !== 'aktif') {
           await supabase.auth.signOut();
-          throw new Error('Akun Anda tidak aktif. Hubungi HR atau Admin.');
+          throw new Error('Akun Anda belum aktif. Hubungi HR.');
         }
 
-        redirectByRole(emp.role);
+        window.location.href = '/dashboard.html';
       } catch (err) {
         errorEl.textContent = err.message || 'Email atau password salah.';
         errorEl.style.display = 'block';
         btn.disabled = false;
         btnText.textContent = 'Masuk';
+      }
+    });
+
+    // Daftar
+    document.getElementById('daftarForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const nama = document.getElementById('regNama').value.trim();
+      const email = document.getElementById('regEmail').value.trim();
+      const password = document.getElementById('regPassword').value;
+      const confirm = document.getElementById('regConfirm').value;
+      const btn = document.getElementById('daftarBtn');
+      const btnText = document.getElementById('daftarBtnText');
+      const errorEl = document.getElementById('daftarError');
+      const successEl = document.getElementById('daftarSuccess');
+
+      errorEl.style.display = 'none';
+      successEl.style.display = 'none';
+
+      if (password !== confirm) {
+        errorEl.textContent = 'Password dan konfirmasi tidak cocok.';
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      btn.disabled = true;
+      btnText.textContent = 'Memproses...';
+
+      try {
+        // Buat akun di Supabase Auth
+        const { data, error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
+
+        // Buat record employee dengan role karyawan
+        const { error: empError } = await supabase
+          .from('employees')
+          .insert({
+            user_id: data.user.id,
+            name: nama,
+            email: email,
+            role: 'karyawan',
+            status: 'aktif'
+          });
+
+        if (empError) throw empError;
+
+        // Sign out dulu, tunggu HR verifikasi
+        await supabase.auth.signOut();
+
+        successEl.textContent = `Akun berhasil dibuat! Silakan login setelah HR melengkapi data jabatan kamu.`;
+        successEl.style.display = 'block';
+        document.getElementById('daftarForm').reset();
+      } catch (err) {
+        errorEl.textContent = err.message || 'Gagal membuat akun. Coba lagi.';
+        errorEl.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btnText.textContent = 'Buat Akun';
       }
     });
   </script>
