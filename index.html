@@ -50,6 +50,22 @@
         <input type="email" id="regEmail" class="form-control" placeholder="nama@albanna.co.id" required>
       </div>
       <div class="form-group">
+        <label class="form-label" for="regDivisi">Divisi</label>
+        <select id="regDivisi" class="form-control" onchange="onDivisiChange()" required>
+          <option value="">Pilih Divisi</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="regJabatan">Jabatan</label>
+        <select id="regJabatan" class="form-control" required>
+          <option value="">Pilih jabatan dulu</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="regWA">Nomor WhatsApp</label>
+        <input type="tel" id="regWA" class="form-control" placeholder="08123456789" required>
+      </div>
+      <div class="form-group">
         <label class="form-label" for="regPassword">Password</label>
         <input type="password" id="regPassword" class="form-control" placeholder="Minimal 6 karakter" required minlength="6">
       </div>
@@ -62,9 +78,6 @@
       <button type="submit" class="login-btn" id="daftarBtn">
         <span id="daftarBtnText">Buat Akun</span>
       </button>
-      <p style="text-align:center;font-size:12px;color:#94a3b8;margin-top:12px;">
-        Setelah daftar, HR akan melengkapi data jabatan kamu.
-      </p>
     </form>
 
     <div style="text-align:center;margin-top:20px;font-size:12px;color:#94a3b8;">
@@ -73,6 +86,32 @@
   </div>
 
   <script>
+    let allDivisions = [];
+    let allJabatan = [];
+
+    // Load divisi & jabatan dari Supabase saat halaman dibuka
+    async function loadStruktur() {
+      const [{ data: divs }, { data: jabs }] = await Promise.all([
+        supabase.from('divisions').select('*').order('name'),
+        supabase.from('jabatan').select('*').order('name')
+      ]);
+      allDivisions = divs || [];
+      allJabatan = jabs || [];
+
+      const divEl = document.getElementById('regDivisi');
+      divEl.innerHTML = '<option value="">Pilih Divisi</option>' +
+        allDivisions.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+    }
+
+    function onDivisiChange() {
+      const divId = document.getElementById('regDivisi').value;
+      const jabEl = document.getElementById('regJabatan');
+      const filtered = allJabatan.filter(j => j.division_id === divId);
+      jabEl.innerHTML = filtered.length
+        ? '<option value="">Pilih Jabatan</option>' + filtered.map(j => `<option value="${j.id}">${j.name}</option>`).join('')
+        : '<option value="">Tidak ada jabatan di divisi ini</option>';
+    }
+
     // Tab toggle
     function showTab(tab) {
       const isLogin = tab === 'login';
@@ -82,6 +121,7 @@
       document.getElementById('tabLogin').style.color = isLogin ? '#fff' : '#64748b';
       document.getElementById('tabDaftar').style.background = isLogin ? 'transparent' : '#4f46e5';
       document.getElementById('tabDaftar').style.color = isLogin ? '#64748b' : '#fff';
+      if (!isLogin) loadStruktur();
     }
 
     // Check if already logged in
@@ -143,6 +183,8 @@
       e.preventDefault();
       const nama = document.getElementById('regNama').value.trim();
       const email = document.getElementById('regEmail').value.trim();
+      const wa_number = document.getElementById('regWA').value.trim();
+      const jabatan_id = document.getElementById('regJabatan').value;
       const password = document.getElementById('regPassword').value;
       const confirm = document.getElementById('regConfirm').value;
       const btn = document.getElementById('daftarBtn');
@@ -158,34 +200,39 @@
         errorEl.style.display = 'block';
         return;
       }
+      if (!jabatan_id) {
+        errorEl.textContent = 'Pilih divisi dan jabatan terlebih dahulu.';
+        errorEl.style.display = 'block';
+        return;
+      }
 
       btn.disabled = true;
       btnText.textContent = 'Memproses...';
 
       try {
-        // Buat akun di Supabase Auth
         const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
 
-        // Buat record employee dengan role karyawan
         const { error: empError } = await supabase
           .from('employees')
           .insert({
             user_id: data.user.id,
-            name: nama,
+            nama: nama,
             email: email,
+            wa_number: wa_number,
+            jabatan_id: jabatan_id,
             role: 'karyawan',
             status: 'aktif'
           });
 
         if (empError) throw empError;
 
-        // Sign out dulu, tunggu HR verifikasi
         await supabase.auth.signOut();
 
-        successEl.textContent = `Akun berhasil dibuat! Silakan login setelah HR melengkapi data jabatan kamu.`;
+        successEl.textContent = 'Akun berhasil dibuat! Silakan login. HR akan melengkapi data gaji kamu.';
         successEl.style.display = 'block';
         document.getElementById('daftarForm').reset();
+        document.getElementById('regJabatan').innerHTML = '<option value="">Pilih jabatan dulu</option>';
       } catch (err) {
         errorEl.textContent = err.message || 'Gagal membuat akun. Coba lagi.';
         errorEl.style.display = 'block';
