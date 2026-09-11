@@ -85,6 +85,7 @@ function getSidebar(role, activePage) {
     { href: '/kpi/input.html', icon: '&#9998;', label: 'Input KPI', roles: ['hr', 'ceo'] },
     { href: '/kpi/template.html', icon: '&#9889;', label: 'Template KPI', roles: ['hr', 'ceo'] },
     { href: '/admin/employees.html', icon: '&#9824;', label: 'Karyawan', roles: ['hr', 'ceo'] },
+    { href: '/admin/struktur.html', icon: '&#127968;', label: 'Divisi & Jabatan', roles: ['hr', 'ceo'] },
     { href: '/admin/products.html', icon: '&#9827;', label: 'Produk', roles: ['hr', 'ceo'] },
     { href: '/payroll/index.html', icon: '&#9829;', label: 'Payroll', roles: ['finance', 'ceo'] },
     { href: '/admin/settings.html', icon: '&#9881;', label: 'Pengaturan', roles: ['finance', 'ceo'] },
