@@ -1,0 +1,7 @@
+const fs = require('fs');
+fs.writeFileSync('js/config.js',
+  `const SUPABASE_URL="${process.env.SUPABASE_URL}";` +
+  `const SUPABASE_ANON_KEY="${process.env.SUPABASE_ANON_KEY}";` +
+  `window.supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);`
+);
+console.log('config.js generated successfully');
