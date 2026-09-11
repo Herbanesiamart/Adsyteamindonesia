@@ -174,7 +174,8 @@
         const total = plData ? plData.reduce((s, r) => s + (Number(r.net_gaji) || 0), 0) : 0;
         document.getElementById('statTotalPayroll').textContent = formatRupiah(total);
       } else {
-        const { data: ownPL } = await supabase.from('payroll').select('net_gaji').eq('period', period).eq('employee_id', currentEmployee.id).single();
+        const { data: ownPLArr } = await supabase.from('payroll').select('net_gaji').eq('period', period).eq('employee_id', currentEmployee.id).limit(1);
+        const ownPL = ownPLArr?.[0] || null;
         document.getElementById('statTotalPayroll').textContent = ownPL ? formatRupiah(ownPL.net_gaji) : 'Rp 0';
       }
     } catch (err) {
@@ -192,7 +193,7 @@
         .from('kpi_periods')
         .select(`
           id, period, total_poin, status, submitted_at,
-          employees(nama, jabatan(nama))
+          employees!kpi_periods_employee_id_fkey(nama, jabatan(nama))
         `)
         .eq('period', period)
         .order('submitted_at', { ascending: false })
