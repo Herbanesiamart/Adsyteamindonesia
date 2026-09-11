@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — KPI & Gaji System</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+</head>
+<body class="login-page">
+
+  <div class="login-card fade-in">
+    <div class="login-logo">
+      <div class="login-logo-icon">ADS</div>
+      <div class="login-title">KPI & Gaji System</div>
+      <div class="login-subtitle">PT. Albanna Digital Sulaiman Yogyakarta</div>
+    </div>
+
+    <form id="loginForm">
+      <div class="form-group">
+        <label class="form-label" for="email">Email</label>
+        <input type="email" id="email" class="form-control" placeholder="nama@albanna.co.id" required autocomplete="email">
+      </div>
+
+      <div class="form-group" style="margin-bottom:6px;">
+        <label class="form-label" for="password">Password</label>
+        <input type="password" id="password" class="form-control" placeholder="Masukkan password" required autocomplete="current-password">
+      </div>
+
+      <div class="login-error" id="loginError"></div>
+
+      <button type="submit" class="login-btn" id="loginBtn">
+        <span id="loginBtnText">Masuk</span>
+      </button>
+    </form>
+
+    <div style="text-align:center;margin-top:20px;font-size:12px;color:#94a3b8;">
+      &copy; 2026 Albanna Digital. All rights reserved.
+    </div>
+  </div>
+
+  <script>
+    // Check if already logged in
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: emp } = await supabase
+          .from('employees')
+          .select('role')
+          .eq('user_id', user.id)
+          .single();
+        if (emp) {
+          redirectByRole(emp.role);
+        }
+      }
+    })();
+
+    function redirectByRole(role) {
+      window.location.href = '/dashboard.html';
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const btn = document.getElementById('loginBtn');
+      const btnText = document.getElementById('loginBtnText');
+      const errorEl = document.getElementById('loginError');
+
+      btn.disabled = true;
+      btnText.textContent = 'Memproses...';
+      errorEl.style.display = 'none';
+
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+
+        // Get employee record
+        const { data: emp, error: empError } = await supabase
+          .from('employees')
+          .select('role, status, nama')
+          .eq('user_id', data.user.id)
+          .single();
+
+        if (empError || !emp) {
+          await supabase.auth.signOut();
+          throw new Error('Akun karyawan tidak ditemukan. Hubungi HR atau Admin.');
+        }
+
+        if (emp.status !== 'aktif') {
+          await supabase.auth.signOut();
+          throw new Error('Akun Anda tidak aktif. Hubungi HR atau Admin.');
+        }
+
+        redirectByRole(emp.role);
+      } catch (err) {
+        errorEl.textContent = err.message || 'Email atau password salah.';
+        errorEl.style.display = 'block';
+        btn.disabled = false;
+        btnText.textContent = 'Masuk';
+      }
+    });
+  </script>
+</body>
+</html>
