@@ -2,17 +2,44 @@
 // AUTH HELPERS
 // ============================================================
 
+const EMP_CACHE_KEY = 'kpi_emp_cache';
+const EMP_CACHE_TTL = 5 * 60 * 1000; // 5 menit
+
+function getCachedEmployee() {
+  try {
+    const raw = sessionStorage.getItem(EMP_CACHE_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (Date.now() - obj._ts > EMP_CACHE_TTL) { sessionStorage.removeItem(EMP_CACHE_KEY); return null; }
+    return obj.data;
+  } catch { return null; }
+}
+
+function setCachedEmployee(emp) {
+  try { sessionStorage.setItem(EMP_CACHE_KEY, JSON.stringify({ data: emp, _ts: Date.now() })); } catch {}
+}
+
+function clearEmployeeCache() {
+  sessionStorage.removeItem(EMP_CACHE_KEY);
+}
+
 async function getCurrentEmployee() {
-  const user = await authGetUser();
-  if (!user) return null;
+  // Gunakan cache dulu — tidak perlu API call tiap pindah halaman
+  const cached = getCachedEmployee();
+  if (cached) return cached;
+
+  const userId = getUserId();
+  if (!userId) return null;
   const token = getToken();
   try {
     const data = await sbGet(
       'employees',
-      `?select=*,jabatan(nama,division_id,divisions(nama))&user_id=eq.${user.id}&limit=1`,
+      `?select=*,jabatan(nama,division_id,divisions(nama))&user_id=eq.${userId}&limit=1`,
       token
     );
-    return (data && data[0]) ? data[0] : null;
+    const emp = (data && data[0]) ? data[0] : null;
+    if (emp) setCachedEmployee(emp);
+    return emp;
   } catch {
     return null;
   }
@@ -44,6 +71,7 @@ async function requireRole(roles) {
 }
 
 async function logout() {
+  clearEmployeeCache();
   await authSignOut();
   window.location.href = '/index.html';
 }
@@ -135,11 +163,30 @@ function getSidebar(role, activePage) {
   `;
 }
 
+function prefetchSidebarPages(role) {
+  const allLinks = [
+    '/dashboard.html', '/kpi/view.html', '/kpi/input.html', '/kpi/template.html',
+    '/admin/employees.html', '/admin/struktur.html', '/admin/products.html',
+    '/payroll/index.html', '/admin/settings.html'
+  ];
+  // Prefetch setelah 1 detik supaya tidak ganggu load utama
+  setTimeout(() => {
+    allLinks.forEach(href => {
+      if (document.querySelector(`link[rel="prefetch"][href="${href}"]`)) return;
+      const link = document.createElement('link');
+      link.rel = 'prefetch';
+      link.href = href;
+      document.head.appendChild(link);
+    });
+  }, 1000);
+}
+
 function initSidebar(employee) {
   const sidebarContainer = document.getElementById('sidebarContainer');
   if (sidebarContainer) {
     sidebarContainer.innerHTML = getSidebar(employee.role);
   }
+  prefetchSidebarPages(employee.role);
   const nameEl = document.getElementById('sidebarUserName');
   const roleEl = document.getElementById('sidebarUserRole');
   const avatarEl = document.getElementById('sidebarAvatar');
