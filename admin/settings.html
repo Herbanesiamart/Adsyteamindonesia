@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pengaturan — KPI & Gaji System</title>
   <link rel="stylesheet" href="/css/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/js/config.js"></script>
   <script src="/js/auth.js"></script>
 </head>
@@ -257,7 +256,8 @@
 
   // ============ PENGKALI ============
   async function loadPengkali() {
-    const { data, error } = await supabase.from('pengkali_rules').select('*').order('min_poin', { ascending: false });
+    let data;
+    try { data = await sbGet('pengkali_rules', '?select=*&order=min_poin.desc', getToken()); } catch(e) { data = []; }
     const tbody = document.getElementById('pengkaliTableBody');
 
     if (!data || data.length === 0) {
@@ -320,13 +320,13 @@
     }
     if (data.min_poin > data.max_poin) { showToast('Min poin harus lebih kecil dari max poin.', 'error'); return; }
 
-    let error;
-    if (id) {
-      ({ error } = await supabase.from('pengkali_rules').update(data).eq('id', id));
-    } else {
-      ({ error } = await supabase.from('pengkali_rules').insert(data));
-    }
-    if (error) { showToast('Gagal: ' + error.message, 'error'); return; }
+    try {
+      if (id) {
+        await sbPatch('pengkali_rules', `?id=eq.${id}`, data, getToken());
+      } else {
+        await sbPost('pengkali_rules', data, getToken());
+      }
+    } catch(e) { showToast('Gagal: ' + e.message, 'error'); return; }
     showToast('Grade pengkali berhasil disimpan.', 'success');
     closeModal('modalPengkali');
     await loadPengkali();
@@ -334,14 +334,15 @@
 
   async function deletePengkali(id) {
     if (!confirm('Hapus grade ini?')) return;
-    await supabase.from('pengkali_rules').delete().eq('id', id);
+    try { await sbDelete('pengkali_rules', `?id=eq.${id}`, getToken()); } catch {}
     showToast('Grade dihapus.', 'success');
     await loadPengkali();
   }
 
   // ============ KOMPONEN GAJI ============
   async function loadKomponen() {
-    const { data } = await supabase.from('salary_components').select('*').order('type').order('nama');
+    let data;
+    try { data = await sbGet('salary_components', '?select=*&order=type,nama', getToken()); } catch { data = []; }
     const tunjangan = (data || []).filter(c => c.type === 'tunjangan' && c.nama !== 'BPJS Kesehatan' && c.nama !== 'BPJS Ketenagakerjaan');
     const potongan = (data || []).filter(c => c.type === 'potongan' && c.nama !== 'BPJS Kesehatan' && c.nama !== 'BPJS Ketenagakerjaan');
 
@@ -416,13 +417,13 @@
     };
     if (!data.nama) { showToast('Nama wajib diisi.', 'error'); return; }
 
-    let error;
-    if (id) {
-      ({ error } = await supabase.from('salary_components').update(data).eq('id', id));
-    } else {
-      ({ error } = await supabase.from('salary_components').insert(data));
-    }
-    if (error) { showToast('Gagal: ' + error.message, 'error'); return; }
+    try {
+      if (id) {
+        await sbPatch('salary_components', `?id=eq.${id}`, data, getToken());
+      } else {
+        await sbPost('salary_components', data, getToken());
+      }
+    } catch(e) { showToast('Gagal: ' + e.message, 'error'); return; }
     showToast('Komponen berhasil disimpan.', 'success');
     closeModal('modalKomponen');
     await loadKomponen();
@@ -430,16 +431,15 @@
 
   async function deleteKomponen(id) {
     if (!confirm('Hapus komponen gaji ini?')) return;
-    await supabase.from('salary_components').delete().eq('id', id);
+    try { await sbDelete('salary_components', `?id=eq.${id}`, getToken()); } catch {}
     showToast('Komponen dihapus.', 'success');
     await loadKomponen();
   }
 
   // ============ BPJS ============
   async function loadBPJS() {
-    const { data } = await supabase.from('salary_components')
-      .select('nama, nilai')
-      .in('nama', ['BPJS Kesehatan', 'BPJS Ketenagakerjaan']);
+    let data;
+    try { data = await sbGet('salary_components', '?select=nama,nilai&nama=in.(BPJS Kesehatan,BPJS Ketenagakerjaan)', getToken()); } catch { data = []; }
 
     if (data) {
       data.forEach(d => {
@@ -455,10 +455,7 @@
 
     showLoading(true);
     try {
-      // Upsert BPJS Kesehatan
-      const { data: existing } = await supabase.from('salary_components')
-        .select('id').in('nama', ['BPJS Kesehatan', 'BPJS Ketenagakerjaan']);
-
+      const existing = await sbGet('salary_components', '?select=id,nama&nama=in.(BPJS Kesehatan,BPJS Ketenagakerjaan)', getToken());
       const existMap = {};
       (existing || []).forEach(e => existMap[e.nama] = e.id);
 
@@ -469,9 +466,9 @@
 
       for (const item of items) {
         if (existMap[item.nama]) {
-          await supabase.from('salary_components').update({ nilai: item.nilai }).eq('id', existMap[item.nama]);
+          await sbPatch('salary_components', `?id=eq.${existMap[item.nama]}`, { nilai: item.nilai }, getToken());
         } else {
-          await supabase.from('salary_components').insert(item);
+          await sbPost('salary_components', item, getToken());
         }
       }
 

@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Divisi & Jabatan — KPI & Gaji System</title>
   <link rel="stylesheet" href="/css/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/js/config.js"></script>
   <script src="/js/auth.js"></script>
 </head>
@@ -149,13 +148,9 @@ async function loadAll() {
 }
 
 async function loadDivisi() {
-  const { data, error } = await supabase
-    .from('divisions')
-    .select('*')
-    .order('name');
-
-  if (error) { showToast('Gagal memuat divisi', 'error'); return; }
-  divisions = data || [];
+  try {
+    divisions = await sbGet('divisions', '?select=*&order=nama', getToken());
+  } catch(e) { showToast('Gagal memuat divisi', 'error'); return; }
 
   document.getElementById('divisiCount').textContent = `${divisions.length} divisi`;
 
@@ -163,13 +158,13 @@ async function loadDivisi() {
   const filterEl = document.getElementById('filterDivisi');
   const filterVal = filterEl.value;
   filterEl.innerHTML = '<option value="">Semua Divisi</option>' +
-    divisions.map(d => `<option value="${d.id}" ${filterVal === d.id ? 'selected' : ''}>${d.name}</option>`).join('');
+    divisions.map(d => `<option value="${d.id}" ${filterVal === d.id ? 'selected' : ''}>${d.nama}</option>`).join('');
 
   // Update jabatan modal dropdown
   const jabDivEl = document.getElementById('jabatanDivisi');
   const jabDivVal = jabDivEl.value;
   jabDivEl.innerHTML = '<option value="">Pilih Divisi</option>' +
-    divisions.map(d => `<option value="${d.id}" ${jabDivVal === d.id ? 'selected' : ''}>${d.name}</option>`).join('');
+    divisions.map(d => `<option value="${d.id}" ${jabDivVal === d.id ? 'selected' : ''}>${d.nama}</option>`).join('');
 
   renderDivisi();
 }
@@ -195,12 +190,12 @@ function renderDivisi() {
           const count = jabatans.filter(j => j.division_id === d.id).length;
           return `
             <tr>
-              <td><strong>${d.name}</strong></td>
+              <td><strong>${d.nama}</strong></td>
               <td><span class="badge badge-blue">${count} jabatan</span></td>
               <td>
                 <div style="display:flex;gap:6px;justify-content:flex-end;">
-                  <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px;" onclick="editDivisi('${d.id}', '${d.name.replace(/'/g, "\\'")}')">Edit</button>
-                  <button class="btn btn-danger" style="padding:4px 10px;font-size:12px;" onclick="confirmHapusDivisi('${d.id}', '${d.name.replace(/'/g, "\\'")}')">Hapus</button>
+                  <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px;" onclick="editDivisi('${d.id}', '${d.nama.replace(/'/g, "\\'")}')">Edit</button>
+                  <button class="btn btn-danger" style="padding:4px 10px;font-size:12px;" onclick="confirmHapusDivisi('${d.id}', '${d.nama.replace(/'/g, "\\'")}')">Hapus</button>
                 </div>
               </td>
             </tr>
@@ -214,16 +209,13 @@ function renderDivisi() {
 async function loadJabatan() {
   const filterDivisi = document.getElementById('filterDivisi')?.value || '';
 
-  let query = supabase
-    .from('jabatan')
-    .select('*, divisions(name)')
-    .order('name');
+  let queryStr = '?select=*,divisions(nama)&order=nama';
+  if (filterDivisi) queryStr += `&division_id=eq.${filterDivisi}`;
 
-  if (filterDivisi) query = query.eq('division_id', filterDivisi);
-
-  const { data, error } = await query;
-  if (error) { showToast('Gagal memuat jabatan', 'error'); return; }
-  jabatans = data || [];
+  try {
+    jabatans = await sbGet('jabatan', queryStr, getToken());
+  } catch(e) { showToast('Gagal memuat jabatan', 'error'); return; }
+  jabatans = jabatans || [];
 
   document.getElementById('jabatanCount').textContent = `${jabatans.length} jabatan`;
   renderJabatan();
@@ -248,12 +240,12 @@ function renderJabatan() {
       <tbody>
         ${jabatans.map(j => `
           <tr>
-            <td><strong>${j.name}</strong></td>
-            <td><span class="badge badge-purple">${j.divisions?.name || '-'}</span></td>
+            <td><strong>${j.nama}</strong></td>
+            <td><span class="badge badge-purple">${j.divisions?.nama || '-'}</span></td>
             <td>
               <div style="display:flex;gap:6px;justify-content:flex-end;">
-                <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px;" onclick="editJabatan('${j.id}', '${j.name.replace(/'/g, "\\'")}', '${j.division_id}')">Edit</button>
-                <button class="btn btn-danger" style="padding:4px 10px;font-size:12px;" onclick="confirmHapusJabatan('${j.id}', '${j.name.replace(/'/g, "\\'")}')">Hapus</button>
+                <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px;" onclick="editJabatan('${j.id}', '${j.nama.replace(/'/g, "\\'")}', '${j.division_id}')">Edit</button>
+                <button class="btn btn-danger" style="padding:4px 10px;font-size:12px;" onclick="confirmHapusJabatan('${j.id}', '${j.nama.replace(/'/g, "\\'")}')">Hapus</button>
               </div>
             </td>
           </tr>
@@ -285,14 +277,13 @@ async function saveDivisi() {
 
   if (!name) { showToast('Nama divisi wajib diisi', 'warning'); return; }
 
-  let error;
-  if (id) {
-    ({ error } = await supabase.from('divisions').update({ name }).eq('id', id));
-  } else {
-    ({ error } = await supabase.from('divisions').insert({ name }));
-  }
-
-  if (error) { showToast('Gagal menyimpan divisi: ' + error.message, 'error'); return; }
+  try {
+    if (id) {
+      await sbPatch('divisions', `?id=eq.${id}`, { name }, getToken());
+    } else {
+      await sbPost('divisions', { name }, getToken());
+    }
+  } catch(e) { showToast('Gagal menyimpan divisi: ' + e.message, 'error'); return; }
 
   showToast(id ? 'Divisi berhasil diupdate' : 'Divisi berhasil ditambahkan', 'success');
   closeModal('modalDivisi');
@@ -318,8 +309,9 @@ function confirmHapusDivisi(id, name) {
 }
 
 async function hapusDivisi(id) {
-  const { error } = await supabase.from('divisions').delete().eq('id', id);
-  if (error) { showToast('Gagal menghapus: ' + error.message, 'error'); return; }
+  try {
+    await sbDelete('divisions', `?id=eq.${id}`, getToken());
+  } catch(e) { showToast('Gagal menghapus: ' + e.message, 'error'); return; }
   showToast('Divisi berhasil dihapus', 'success');
   closeModal('modalHapus');
   await loadAll();
@@ -351,14 +343,13 @@ async function saveJabatan() {
   if (!name) { showToast('Nama jabatan wajib diisi', 'warning'); return; }
   if (!division_id) { showToast('Pilih divisi terlebih dahulu', 'warning'); return; }
 
-  let error;
-  if (id) {
-    ({ error } = await supabase.from('jabatan').update({ name, division_id }).eq('id', id));
-  } else {
-    ({ error } = await supabase.from('jabatan').insert({ name, division_id }));
-  }
-
-  if (error) { showToast('Gagal menyimpan jabatan: ' + error.message, 'error'); return; }
+  try {
+    if (id) {
+      await sbPatch('jabatan', `?id=eq.${id}`, { name, division_id }, getToken());
+    } else {
+      await sbPost('jabatan', { name, division_id }, getToken());
+    }
+  } catch(e) { showToast('Gagal menyimpan jabatan: ' + e.message, 'error'); return; }
 
   showToast(id ? 'Jabatan berhasil diupdate' : 'Jabatan berhasil ditambahkan', 'success');
   closeModal('modalJabatan');
@@ -374,8 +365,9 @@ function confirmHapusJabatan(id, name) {
 }
 
 async function hapusJabatan(id) {
-  const { error } = await supabase.from('jabatan').delete().eq('id', id);
-  if (error) { showToast('Gagal menghapus: ' + error.message, 'error'); return; }
+  try {
+    await sbDelete('jabatan', `?id=eq.${id}`, getToken());
+  } catch(e) { showToast('Gagal menghapus: ' + e.message, 'error'); return; }
   showToast('Jabatan berhasil dihapus', 'success');
   closeModal('modalHapus');
   await loadAll();

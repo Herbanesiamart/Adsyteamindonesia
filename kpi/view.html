@@ -14,7 +14,6 @@
     .poin-bar-fill { height:100%; border-radius:3px; background:var(--primary); }
     @media print { .no-print { display:none!important; } }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="/js/config.js"></script>
   <script src="/js/auth.js"></script>
@@ -78,8 +77,7 @@
     initSidebar(currentEmployee);
 
     // Load pengkali
-    const { data: pkData } = await supabase.from('pengkali_rules').select('*').order('min_poin', { ascending: false });
-    pengkaliRules = pkData || [];
+    try { pengkaliRules = await sbGet('pengkali_rules', '?select=*&order=min_poin.desc', getToken()); } catch { pengkaliRules = []; }
 
     // If HR or CEO, show employee selector
     if (['hr', 'ceo', 'finance'].includes(currentEmployee.role)) {
@@ -116,7 +114,8 @@
   }
 
   async function loadEmployeeList() {
-    const { data } = await supabase.from('employees').select('id, nama').eq('status', 'aktif').order('nama');
+    let data;
+    try { data = await sbGet('employees', '?select=id,nama&status=eq.aktif&order=nama', getToken()); } catch { data = []; }
     const sel = document.getElementById('employeeSelector');
     (data || []).forEach(e => sel.add(new Option(e.nama, e.id)));
   }
@@ -130,24 +129,14 @@
     const empId = empSel ? (empSel.value || currentEmployee.id) : currentEmployee.id;
 
     // Load employee info
-    const { data: emp } = await supabase.from('employees').select('*, jabatan(nama)').eq('id', empId).single();
+    let emp;
+    try { const arr = await sbGet('employees', `?select=*,jabatan(nama)&id=eq.${empId}&limit=1`, getToken()); emp = arr?.[0]; } catch {}
     viewEmployee = emp;
 
     // Load KPI period
-    const { data: kpiPeriod, error } = await supabase
-      .from('kpi_periods')
-      .select(`
-        id, period, total_poin, status, submitted_at, notes,
-        kpi_templates(nama, omzet_target),
-        kpi_records(id, achieve, poin_get, indicator_id, product_id,
-          kpi_indicators(id, nama, type, bobot, point_total, config,
-            kpi_sections(nama, type, urutan)),
-          products(nama)
-        )
-      `)
-      .eq('employee_id', empId)
-      .eq('period', period)
-      .single();
+    const kpiQuery = `?select=id,period,total_poin,status,submitted_at,notes,kpi_templates(nama,omzet_target),kpi_records(id,achieve,poin_get,indicator_id,product_id,kpi_indicators(id,nama,type,bobot,point_total,config,kpi_sections(nama,type,urutan)),products(nama))&employee_id=eq.${empId}&period=eq.${period}&limit=1`;
+    let kpiPeriod;
+    try { const arr = await sbGet('kpi_periods', kpiQuery, getToken()); kpiPeriod = arr?.[0]; } catch {}
 
     if (!kpiPeriod) {
       content.innerHTML = `

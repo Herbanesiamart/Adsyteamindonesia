@@ -13,7 +13,6 @@
     .component-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
     .component-row input { flex:1; }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/js/config.js"></script>
   <script src="/js/auth.js"></script>
 </head>
@@ -259,12 +258,12 @@
   }
 
   async function loadSalaryComponents() {
-    const { data } = await supabase.from('salary_components').select('*').eq('is_global', true).order('type');
-    salaryComponents = data || [];
+    try { salaryComponents = await sbGet('salary_components', '?select=*&is_global=eq.true&order=type', getToken()); } catch { salaryComponents = []; }
   }
 
   async function loadEmployeesForKasbon() {
-    const { data } = await supabase.from('employees').select('id, nama').eq('status', 'aktif').order('nama');
+    let data;
+    try { data = await sbGet('employees', '?select=id,nama&status=eq.aktif&order=nama', getToken()); } catch { data = []; }
     const sel = document.getElementById('kasbonEmployee');
     (data || []).forEach(e => sel.add(new Option(e.nama, e.id)));
   }
@@ -283,15 +282,12 @@
     const tbody = document.getElementById('payrollTableBody');
     tbody.innerHTML = '<tr class="loading-row"><td colspan="10"><div class="spinner spinner-sm" style="margin:auto;"></div></td></tr>';
 
-    let query = supabase
-      .from('payroll')
-      .select(`*, employees(nama, jabatan(nama))`)
-      .eq('period', period);
-    if (status) query = query.eq('status', status);
-    query = query.order('employees(nama)');
+    let queryStr = `?select=*,employees(nama,jabatan(nama))&period=eq.${period}&order=employees(nama)`;
+    if (status) queryStr += `&status=eq.${status}`;
 
-    const { data, error } = await query;
-    if (error) { tbody.innerHTML = `<tr><td colspan="10" class="text-center">${error.message}</td></tr>`; return; }
+    let data;
+    try { data = await sbGet('payroll', queryStr, getToken()); }
+    catch(e) { tbody.innerHTML = `<tr><td colspan="10" class="text-center">${e.message}</td></tr>`; return; }
 
     document.getElementById('payrollSubtitle').textContent = getPeriodLabel(period);
 
@@ -342,33 +338,26 @@
     showLoading(true);
     try {
       // Get all active employees
-      const { data: employees } = await supabase
-        .from('employees')
-        .select('id, gaji_pokok, jabatan_id')
-        .eq('status', 'aktif');
+      const employees = await sbGet('employees', '?select=id,gaji_pokok,jabatan_id&status=eq.aktif', getToken());
 
       // Get KPI periods for this month
-      const { data: kpiPeriods } = await supabase
-        .from('kpi_periods')
-        .select('id, employee_id, total_poin')
-        .eq('period', period);
-
+      const kpiPeriods = await sbGet('kpi_periods', `?select=id,employee_id,total_poin&period=eq.${period}`, getToken());
       const kpiMap = {};
       (kpiPeriods || []).forEach(kp => { kpiMap[kp.employee_id] = kp; });
 
       // Get pengkali rules
-      const { data: pkRules } = await supabase.from('pengkali_rules').select('*').order('min_poin', { ascending: false });
+      const pkRules = await sbGet('pengkali_rules', '?select=*&order=min_poin.desc', getToken());
 
       // Get global salary components
-      const { data: components } = await supabase.from('salary_components').select('*').eq('is_global', true);
+      const components = await sbGet('salary_components', '?select=*&is_global=eq.true', getToken());
 
       // Get kasbon for this period
-      const { data: kasbons } = await supabase.from('kasbon_records').select('employee_id, jumlah').eq('period', period).eq('status', 'approved');
+      const kasbons = await sbGet('kasbon_records', `?select=employee_id,jumlah&period=eq.${period}&status=eq.approved`, getToken());
       const kasbonMap = {};
       (kasbons || []).forEach(k => { kasbonMap[k.employee_id] = (kasbonMap[k.employee_id] || 0) + Number(k.jumlah); });
 
       // Existing payrolls
-      const { data: existPayrolls } = await supabase.from('payroll').select('employee_id').eq('period', period);
+      const existPayrolls = await sbGet('payroll', `?select=employee_id&period=eq.${period}`, getToken());
       const existSet = new Set((existPayrolls || []).map(p => p.employee_id));
 
       let created = 0;
@@ -402,7 +391,7 @@
         const kasbon = kasbonMap[emp.id] || 0;
         const netGaji = gajiPokok + totalTunjangan - totalPotongan + bonusKPI - kasbon;
 
-        const { data: newPayroll, error: pe } = await supabase.from('payroll').insert({
+        const newPayrollArr = await sbPost('payroll', {
           employee_id: emp.id,
           period,
           gaji_pokok: gajiPokok,
@@ -414,12 +403,11 @@
           kpi_period_id: kpi?.id || null,
           net_gaji: netGaji,
           status: 'draft',
-        }).select('id').single();
+        }, getToken());
+        const newPayroll = Array.isArray(newPayrollArr) ? newPayrollArr[0] : newPayrollArr;
 
-        if (!pe && newPayroll && compRecords.length > 0) {
-          await supabase.from('payroll_components').insert(
-            compRecords.map(c => ({ ...c, payroll_id: newPayroll.id }))
-          );
+        if (newPayroll?.id && compRecords.length > 0) {
+          await sbPost('payroll_components', compRecords.map(c => ({ ...c, payroll_id: newPayroll.id })), getToken());
         }
         created++;
       }
@@ -433,11 +421,9 @@
   }
 
   async function openEditPayroll(id) {
-    const { data: p } = await supabase
-      .from('payroll')
-      .select('*, employees(nama, jabatan(nama)), payroll_components(*)')
-      .eq('id', id)
-      .single();
+    let arr;
+    try { arr = await sbGet('payroll', `?select=*,employees(nama,jabatan(nama)),payroll_components(*)&id=eq.${id}&limit=1`, getToken()); } catch {}
+    const p = arr?.[0];
 
     if (!p) return;
     currentEditPayroll = p;
@@ -520,7 +506,7 @@
 
     showLoading(true);
     try {
-      await supabase.from('payroll').update({
+      await sbPatch('payroll', `?id=eq.${id}`, {
         gaji_pokok: gajiPokok,
         total_tunjangan: totalTunjangan,
         total_potongan: totalPotongan,
@@ -528,10 +514,10 @@
         total_kasbon: kasbon,
         net_gaji: netGaji,
         notes: document.getElementById('editNotes').value,
-      }).eq('id', id);
+      }, getToken());
 
       for (const cu of compUpdates) {
-        await supabase.from('payroll_components').update({ jumlah: cu.jumlah }).eq('id', cu.id);
+        await sbPatch('payroll_components', `?id=eq.${cu.id}`, { jumlah: cu.jumlah }, getToken());
       }
 
       showToast('Payroll berhasil disimpan.', 'success');
@@ -545,7 +531,7 @@
   async function approvePayroll() {
     const id = document.getElementById('editPayrollId').value;
     if (!confirm('Approve payroll ini?')) return;
-    await supabase.from('payroll').update({ status: 'approved', approved_by: currentEmployee.id, approved_at: new Date().toISOString() }).eq('id', id);
+    try { await sbPatch('payroll', `?id=eq.${id}`, { status: 'approved', approved_by: currentEmployee.id, approved_at: new Date().toISOString() }, getToken()); } catch {}
     showToast('Payroll approved.', 'success');
     document.getElementById('approveBtn').style.display = 'none';
     await loadPayroll();
@@ -561,11 +547,8 @@
     const tbody = document.getElementById('kasbonTableBody');
     tbody.innerHTML = '<tr class="loading-row"><td colspan="6"><div class="spinner spinner-sm" style="margin:auto;"></div></td></tr>';
 
-    const { data, error } = await supabase
-      .from('kasbon_records')
-      .select('*, employees(nama)')
-      .eq('period', period)
-      .order('created_at', { ascending: false });
+    let data;
+    try { data = await sbGet('kasbon_records', `?select=*,employees(nama)&period=eq.${period}&order=created_at.desc`, getToken()); } catch { data = []; }
 
     if (!data || data.length === 0) {
       tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted" style="padding:40px;">Belum ada catatan kasbon.</td></tr>';
@@ -606,22 +589,21 @@
       created_by: currentEmployee.id,
     };
     if (!data.employee_id || !data.period || !data.jumlah) { showToast('Lengkapi data kasbon.', 'error'); return; }
-    const { error } = await supabase.from('kasbon_records').insert(data);
-    if (error) { showToast('Gagal: ' + error.message, 'error'); return; }
+    try { await sbPost('kasbon_records', data, getToken()); } catch(e) { showToast('Gagal: ' + e.message, 'error'); return; }
     showToast('Kasbon berhasil dicatat.', 'success');
     closeModal('modalKasbon');
     await loadKasbon();
   }
 
   async function approveKasbon(id) {
-    await supabase.from('kasbon_records').update({ status: 'approved' }).eq('id', id);
+    try { await sbPatch('kasbon_records', `?id=eq.${id}`, { status: 'approved' }, getToken()); } catch {}
     showToast('Kasbon diapprove.', 'success');
     await loadKasbon();
   }
 
   async function deleteKasbon(id) {
     if (!confirm('Hapus catatan kasbon ini?')) return;
-    await supabase.from('kasbon_records').delete().eq('id', id);
+    try { await sbDelete('kasbon_records', `?id=eq.${id}`, getToken()); } catch {}
     showToast('Kasbon dihapus.', 'success');
     await loadKasbon();
   }

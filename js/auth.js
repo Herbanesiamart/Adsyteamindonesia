@@ -3,26 +3,29 @@
 // ============================================================
 
 async function getCurrentEmployee() {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await authGetUser();
   if (!user) return null;
-  const { data, error } = await supabase
-    .from('employees')
-    .select('*, jabatan(nama, division_id, divisions(nama))')
-    .eq('user_id', user.id)
-    .single();
-  if (error || !data) return null;
-  return data;
+  const token = getToken();
+  try {
+    const data = await sbGet(
+      'employees',
+      `?select=*,jabatan(nama,division_id,divisions(nama))&user_id=eq.${user.id}&limit=1`,
+      token
+    );
+    return (data && data[0]) ? data[0] : null;
+  } catch {
+    return null;
+  }
 }
 
 async function requireAuth() {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
+  if (!isLoggedIn()) {
     window.location.href = '/index.html';
     return null;
   }
   const emp = await getCurrentEmployee();
   if (!emp) {
-    await supabase.auth.signOut();
+    await authSignOut();
     window.location.href = '/index.html';
     return null;
   }
@@ -41,7 +44,7 @@ async function requireRole(roles) {
 }
 
 async function logout() {
-  await supabase.auth.signOut();
+  await authSignOut();
   window.location.href = '/index.html';
 }
 
@@ -95,7 +98,6 @@ function getSidebar(role, activePage) {
   const currentPath = window.location.pathname;
 
   const navItems = visibleLinks.map(link => {
-    const isActive = currentPath.includes(link.href.replace('/index.html', '').replace('/dashboard.html', ''));
     const activeClass = (currentPath === link.href || (link.href !== '/dashboard.html' && currentPath.includes(link.href))) ? 'active' : '';
     return `
       <a href="${link.href}" class="nav-link ${activeClass}">

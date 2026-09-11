@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Login — KPI & Gaji System</title>
   <link rel="stylesheet" href="/css/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/js/config.js"></script>
 </head>
 <body class="login-page">
@@ -89,18 +88,31 @@
     let allDivisions = [];
     let allJabatan = [];
 
-    // Load divisi & jabatan dari Supabase saat halaman dibuka
-    async function loadStruktur() {
-      const [{ data: divs }, { data: jabs }] = await Promise.all([
-        supabase.from('divisions').select('*').order('name'),
-        supabase.from('jabatan').select('*').order('name')
-      ]);
-      allDivisions = divs || [];
-      allJabatan = jabs || [];
+    // Check if already logged in
+    (async () => {
+      if (!isLoggedIn()) return;
+      try {
+        const emp = await sbGet('employees', `?select=role&user_id=eq.${getUserId()}&limit=1`, getToken());
+        if (emp && emp[0]) window.location.href = '/dashboard.html';
+      } catch {}
+    })();
 
-      const divEl = document.getElementById('regDivisi');
-      divEl.innerHTML = '<option value="">Pilih Divisi</option>' +
-        allDivisions.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+    // Load divisi & jabatan saat halaman daftar dibuka
+    async function loadStruktur() {
+      try {
+        const [divs, jabs] = await Promise.all([
+          sbGet('divisions', '?select=*&order=name'),
+          sbGet('jabatan', '?select=*&order=name')
+        ]);
+        allDivisions = divs || [];
+        allJabatan = jabs || [];
+
+        const divEl = document.getElementById('regDivisi');
+        divEl.innerHTML = '<option value="">Pilih Divisi</option>' +
+          allDivisions.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+      } catch (err) {
+        console.error('Gagal load struktur:', err);
+      }
     }
 
     function onDivisiChange() {
@@ -138,19 +150,6 @@
       }
     }
 
-    // Check if already logged in
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: emp } = await supabase
-          .from('employees')
-          .select('role')
-          .eq('user_id', user.id)
-          .single();
-        if (emp) window.location.href = '/dashboard.html';
-      }
-    })();
-
     // Login
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -165,21 +164,19 @@
       errorEl.style.display = 'none';
 
       try {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        const session = await authSignIn(email, password);
+        saveSession(session);
 
-        const { data: emp, error: empError } = await supabase
-          .from('employees')
-          .select('role, status')
-          .eq('user_id', data.user.id)
-          .single();
+        // Check employee record
+        const empArr = await sbGet('employees', `?select=role,status&user_id=eq.${session.user.id}&limit=1`, session.access_token);
+        const emp = empArr && empArr[0];
 
-        if (empError || !emp) {
-          await supabase.auth.signOut();
+        if (!emp) {
+          await authSignOut();
           throw new Error('Akun karyawan tidak ditemukan. Hubungi HR.');
         }
         if (emp.status !== 'aktif') {
-          await supabase.auth.signOut();
+          await authSignOut();
           throw new Error('Akun Anda belum aktif. Hubungi HR.');
         }
 
@@ -224,24 +221,28 @@
       btnText.textContent = 'Memproses...';
 
       try {
-        const { data, error } = await supabase.auth.signUp({ email, password });
-        if (error) throw error;
+        const signUpResult = await authSignUp(email, password);
+        const userId = signUpResult.user?.id;
 
-        const { error: empError } = await supabase
-          .from('employees')
-          .insert({
-            user_id: data.user.id,
-            nama: nama,
-            email: email,
-            wa_number: wa_number,
-            jabatan_id: jabatan_id,
-            role: 'karyawan',
-            status: 'aktif'
-          });
+        if (!userId) throw new Error('Gagal mendaftarkan akun.');
 
-        if (empError) throw empError;
+        // Need a token — for signup we may not have access_token if email confirm required
+        // Insert employee using anon key (requires RLS policy allowing anon insert or authenticated)
+        const token = signUpResult.access_token || null;
+        await sbPost('employees', {
+          user_id: userId,
+          nama,
+          email,
+          wa_number,
+          jabatan_id,
+          role: 'karyawan',
+          status: 'aktif'
+        }, token);
 
-        await supabase.auth.signOut();
+        // Sign out
+        if (signUpResult.access_token) {
+          await authSignOut();
+        }
 
         successEl.textContent = 'Akun berhasil dibuat! Silakan login. HR akan melengkapi data gaji kamu.';
         successEl.style.display = 'block';

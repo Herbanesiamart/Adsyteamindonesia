@@ -28,7 +28,6 @@
     .step-content.active { display:block; }
     @media(max-width:900px){ .kpi-input-layout { grid-template-columns:1fr; } }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/js/config.js"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/kpi-calc.js"></script>
@@ -188,11 +187,8 @@
   })();
 
   async function loadEmployees() {
-    const { data } = await supabase
-      .from('employees')
-      .select('id, nama, jabatan_id, jabatan(nama)')
-      .eq('status', 'aktif')
-      .order('nama');
+    let data;
+    try { data = await sbGet('employees', '?select=id,nama,jabatan_id,jabatan(nama)&status=eq.aktif&order=nama', getToken()); } catch { data = []; }
     const sel = document.getElementById('employeeSelect');
     (data || []).forEach(e => {
       sel.add(new Option(`${e.nama} — ${e.jabatan?.nama || 'Tanpa Jabatan'}`, e.id));
@@ -200,27 +196,23 @@
   }
 
   async function loadAllProducts() {
-    const { data } = await supabase.from('products').select('*').eq('status', 'aktif').order('nama');
-    allProducts = data || [];
+    try { allProducts = await sbGet('products', '?select=*&status=eq.aktif&order=nama', getToken()); } catch { allProducts = []; }
     const sel = document.getElementById('productSelect');
     allProducts.forEach(p => sel.add(new Option(p.nama, p.id)));
   }
 
   async function loadPengkali() {
-    const { data } = await supabase.from('pengkali_rules').select('*').order('min_poin', { ascending: false });
-    pengkaliRules = data || [];
+    try { pengkaliRules = await sbGet('pengkali_rules', '?select=*&order=min_poin.desc', getToken()); } catch { pengkaliRules = []; }
   }
 
   async function onEmployeeChange() {
     const empId = document.getElementById('employeeSelect').value;
     if (!empId) { selectedEmployee = null; document.getElementById('loadKPIBtn').disabled = true; return; }
 
-    const { data } = await supabase
-      .from('employees')
-      .select('*, jabatan(id, nama, divisions(nama))')
-      .eq('id', empId)
-      .single();
-    selectedEmployee = data;
+    let arr;
+    try { arr = await sbGet('employees', `?select=*,jabatan(id,nama,divisions(nama))&id=eq.${empId}&limit=1`, getToken()); } catch { arr = []; }
+    selectedEmployee = arr?.[0];
+    const data = selectedEmployee;
 
     document.getElementById('employeeInfo').style.display = 'block';
     document.getElementById('employeeInfo').textContent =
@@ -238,13 +230,9 @@
 
   async function findTemplate() {
     if (!selectedEmployee?.jabatan_id) return;
-    const { data } = await supabase
-      .from('kpi_templates')
-      .select('id, nama')
-      .eq('jabatan_id', selectedEmployee.jabatan_id)
-      .eq('is_active', true)
-      .limit(1)
-      .single();
+    let arr;
+    try { arr = await sbGet('kpi_templates', `?select=id,nama&jabatan_id=eq.${selectedEmployee.jabatan_id}&is_active=eq.true&limit=1`, getToken()); } catch {}
+    const data = arr?.[0];
 
     if (data) {
       document.getElementById('templateInfo').style.display = 'block';
@@ -269,42 +257,25 @@
     showLoading(true);
     try {
       // Load template
-      const { data: tmpl } = await supabase
-        .from('kpi_templates')
-        .select(`id, nama, omzet_target,
-          kpi_sections(id, nama, type, urutan,
-            kpi_indicators(id, nama, type, bobot, point_total, config, urutan))`)
-        .eq('jabatan_id', selectedEmployee.jabatan_id)
-        .eq('is_active', true)
-        .limit(1)
-        .single();
+      let tmplArr;
+      try { tmplArr = await sbGet('kpi_templates', `?select=id,nama,omzet_target,kpi_sections(id,nama,type,urutan,kpi_indicators(id,nama,type,bobot,point_total,config,urutan))&jabatan_id=eq.${selectedEmployee.jabatan_id}&is_active=eq.true&limit=1`, getToken()); } catch {}
+      const tmpl = tmplArr?.[0];
 
       if (!tmpl) { showToast('Template KPI tidak ditemukan untuk jabatan ini.', 'error'); showLoading(false); return; }
       currentTemplate = tmpl;
 
       // Load employee products for this period
-      const { data: epData } = await supabase
-        .from('employee_products')
-        .select('*, products(id, nama, unit)')
-        .eq('employee_id', empId)
-        .eq('period', period);
-      employeeProducts = epData || [];
+      try { employeeProducts = await sbGet('employee_products', `?select=*,products(id,nama,unit)&employee_id=eq.${empId}&period=eq.${period}`, getToken()) || []; } catch { employeeProducts = []; }
 
       // Load existing KPI period
-      const { data: existKPI } = await supabase
-        .from('kpi_periods')
-        .select('id, status, notes')
-        .eq('employee_id', empId)
-        .eq('period', period)
-        .single();
+      let existKPI;
+      try { const arr = await sbGet('kpi_periods', `?select=id,status,notes&employee_id=eq.${empId}&period=eq.${period}&limit=1`, getToken()); existKPI = arr?.[0]; } catch {}
 
       if (existKPI) {
         kpiPeriodId = existKPI.id;
         // Load existing records
-        const { data: records } = await supabase
-          .from('kpi_records')
-          .select('*')
-          .eq('kpi_period_id', kpiPeriodId);
+        let records;
+        try { records = await sbGet('kpi_records', `?select=*&kpi_period_id=eq.${kpiPeriodId}`, getToken()); } catch {}
         kpiRecordsMap = {};
         (records || []).forEach(r => {
           const key = r.product_id ? `${r.indicator_id}_${r.product_id}` : r.indicator_id;
@@ -363,7 +334,7 @@
     const ep = employeeProducts.find(e => e.id === id);
     if (ep) {
       ep[field] = Number(value);
-      await supabase.from('employee_products').update({ [field]: Number(value) }).eq('id', id);
+      try { await sbPatch('employee_products', `?id=eq.${id}`, { [field]: Number(value) }, getToken()); } catch {}
       renderKPIForm();
       updateSummary();
     }
@@ -390,17 +361,26 @@
       target_minimal: Number(document.getElementById('productTargetMinimal').value) || 0,
     };
 
-    const { data: saved, error } = await supabase
-      .from('employee_products')
-      .upsert(data, { onConflict: 'employee_id,product_id,period' })
-      .select('*, products(id, nama, unit)')
-      .single();
+    let saved;
+    try {
+      // Try insert, if conflict update
+      const existing = employeeProducts.find(e => e.product_id === data.product_id && e.period === data.period);
+      if (existing) {
+        await sbPatch('employee_products', `?id=eq.${existing.id}`, { sales_target: data.sales_target, tracehold: data.tracehold, target_minimal: data.target_minimal }, getToken());
+        Object.assign(existing, data);
+        saved = existing;
+      } else {
+        const arr = await sbPost('employee_products', data, getToken());
+        saved = Array.isArray(arr) ? arr[0] : arr;
+        // Reload to get products relation
+        const reloaded = await sbGet('employee_products', `?select=*,products(id,nama,unit)&id=eq.${saved.id}&limit=1`, getToken());
+        saved = reloaded?.[0] || saved;
+        employeeProducts.push(saved);
+      }
+    } catch(e) { showToast('Gagal: ' + e.message, 'error'); return; }
 
-    if (error) { showToast('Gagal: ' + error.message, 'error'); return; }
-
-    const existing = employeeProducts.findIndex(e => e.id === saved.id);
-    if (existing >= 0) employeeProducts[existing] = saved;
-    else employeeProducts.push(saved);
+    const existIdx = employeeProducts.findIndex(e => e.id === saved.id);
+    if (existIdx >= 0) employeeProducts[existIdx] = saved;
 
     renderProductList();
     renderKPIForm();
@@ -411,7 +391,7 @@
 
   async function removeProduct(id) {
     if (!confirm('Hapus produk dari periode ini?')) return;
-    await supabase.from('employee_products').delete().eq('id', id);
+    try { await sbDelete('employee_products', `?id=eq.${id}`, getToken()); } catch {}
     employeeProducts = employeeProducts.filter(e => e.id !== id);
     renderProductList();
     renderKPIForm();
@@ -741,20 +721,18 @@
 
       let periodId = kpiPeriodId;
       if (periodId) {
-        await supabase.from('kpi_periods').update(periodData).eq('id', periodId);
+        await sbPatch('kpi_periods', `?id=eq.${periodId}`, periodData, getToken());
       } else {
-        const { data: np, error: pe } = await supabase.from('kpi_periods').insert(periodData).select('id').single();
-        if (pe) throw pe;
-        periodId = np.id;
+        const np = await sbPost('kpi_periods', periodData, getToken());
+        periodId = (Array.isArray(np) ? np[0] : np).id;
         kpiPeriodId = periodId;
       }
 
       // Delete old records and insert new
-      await supabase.from('kpi_records').delete().eq('kpi_period_id', periodId);
+      await sbDelete('kpi_records', `?kpi_period_id=eq.${periodId}`, getToken());
       const toInsert = records.map(r => ({ ...r, kpi_period_id: periodId }));
       if (toInsert.length > 0) {
-        const { error: re } = await supabase.from('kpi_records').insert(toInsert);
-        if (re) throw re;
+        await sbPost('kpi_records', toInsert, getToken());
       }
 
       showToast(`KPI berhasil ${status === 'submitted' ? 'disubmit' : 'disimpan sebagai draft'}.`, 'success');

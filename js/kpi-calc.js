@@ -268,15 +268,13 @@ const KPICalc = {
    * Get pengkali (multiplier) based on total poin
    */
   async getPengkali(totalPoin) {
-    const { data, error } = await supabase
-      .from('pengkali_rules')
-      .select('*')
-      .lte('min_poin', totalPoin)
-      .gte('max_poin', totalPoin)
-      .limit(1);
-
-    if (error || !data || data.length === 0) return { multiplier: 1, label: 'Tidak Ada' };
-    return data[0];
+    try {
+      const data = await sbGet('pengkali_rules', `?select=*&min_poin=lte.${totalPoin}&max_poin=gte.${totalPoin}&limit=1`, getToken());
+      if (!data || data.length === 0) return { multiplier: 1, label: 'Tidak Ada' };
+      return data[0];
+    } catch {
+      return { multiplier: 1, label: 'Tidak Ada' };
+    }
   },
 
   /**

@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Karyawan — KPI & Gaji System</title>
   <link rel="stylesheet" href="/css/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/js/config.js"></script>
   <script src="/js/auth.js"></script>
 </head>
@@ -179,15 +178,13 @@
   })();
 
   async function loadDivisi() {
-    const { data } = await supabase.from('divisions').select('*').order('nama');
-    divisiList = data || [];
+    try { divisiList = await sbGet('divisions', '?select=*&order=nama', getToken()); } catch { divisiList = []; }
     const sel = document.getElementById('empDivisi');
     divisiList.forEach(d => sel.add(new Option(d.nama, d.id)));
   }
 
   async function loadJabatanAll() {
-    const { data } = await supabase.from('jabatan').select('*, divisions(nama)').order('nama');
-    jabatanList = data || [];
+    try { jabatanList = await sbGet('jabatan', '?select=*,divisions(nama)&order=nama', getToken()); } catch { jabatanList = []; }
 
     const filter = document.getElementById('jabatanFilter');
     jabatanList.forEach(j => filter.add(new Option(`${j.nama} (${j.divisions?.nama || '-'})`, j.id)));
@@ -207,15 +204,14 @@
     const tbody = document.getElementById('employeeTableBody');
     tbody.innerHTML = '<tr class="loading-row"><td colspan="8"><div class="spinner spinner-sm" style="margin:auto;"></div></td></tr>';
 
-    let query = supabase
-      .from('employees')
-      .select('*, jabatan(nama, divisions(nama))')
-      .order('nama');
-    if (jabatanId) query = query.eq('jabatan_id', jabatanId);
-    if (status) query = query.eq('status', status);
+    let queryStr = '?select=*,jabatan(nama,divisions(nama))&order=nama';
+    if (jabatanId) queryStr += `&jabatan_id=eq.${jabatanId}`;
+    if (status) queryStr += `&status=eq.${status}`;
 
-    const { data, error } = await query;
-    if (error) { tbody.innerHTML = `<tr><td colspan="8">${error.message}</td></tr>`; return; }
+    let data;
+    try {
+      data = await sbGet('employees', queryStr, getToken());
+    } catch(e) { tbody.innerHTML = `<tr><td colspan="8">${e.message}</td></tr>`; return; }
 
     allEmployees = data || [];
     document.getElementById('employeeCount').textContent = `${allEmployees.length} karyawan`;
@@ -259,7 +255,7 @@
           <td>
             <div class="btn-group">
               <button class="btn btn-sm btn-secondary" onclick="openEditEmployee(${JSON.stringify(e).replace(/"/g, '&quot;')})">Edit</button>
-              <button class="btn btn-sm btn-danger" onclick="deleteEmployee('${e.id}', '${e.user_id}')">Hapus</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteEmployee('${e.id}')">Hapus</button>
             </div>
           </td>
         </tr>
@@ -341,30 +337,18 @@
       };
 
       if (!id) {
-        // Create auth user via admin API
-        const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-          email,
-          password,
-          email_confirm: true,
-        });
-
-        if (authError) throw new Error('Gagal membuat akun: ' + authError.message);
+        // Sign up new user
+        const signUpResult = await authSignUp(email, password);
+        const newUserId = signUpResult.user?.id;
+        if (!newUserId) throw new Error('Gagal membuat akun auth.');
 
         empData.email = email;
-        empData.user_id = authData.user.id;
-
-        const { error: empError } = await supabase.from('employees').insert(empData);
-        if (empError) throw empError;
+        empData.user_id = newUserId;
+        await sbPost('employees', empData, signUpResult.access_token || getToken());
       } else {
         // Update employee
-        const { error: empError } = await supabase.from('employees').update(empData).eq('id', id);
-        if (empError) throw empError;
-
-        // Update password if provided
-        if (password && userId) {
-          const { error: pwError } = await supabase.auth.admin.updateUserById(userId, { password });
-          if (pwError) showToast('Data tersimpan, tapi password gagal diupdate: ' + pwError.message, 'warning');
-        }
+        await sbPatch('employees', `?id=eq.${id}`, empData, getToken());
+        if (password) showToast('Data tersimpan. Password hanya bisa diubah karyawan sendiri lewat reset.', 'info');
       }
 
       showToast('Karyawan berhasil disimpan.', 'success');
@@ -376,15 +360,12 @@
     showLoading(false);
   }
 
-  async function deleteEmployee(id, userId) {
+  async function deleteEmployee(id) {
     if (!confirm('Hapus karyawan ini? Data KPI dan payroll terkait akan tetap ada.')) return;
 
     showLoading(true);
     try {
-      await supabase.from('employees').delete().eq('id', id);
-      if (userId) {
-        await supabase.auth.admin.deleteUser(userId);
-      }
+      await sbDelete('employees', `?id=eq.${id}`, getToken());
       showToast('Karyawan dihapus.', 'success');
       await loadEmployees();
     } catch (err) {

@@ -48,7 +48,6 @@
       .slip-paper { box-shadow: none; padding: 20px; }
     }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="/js/config.js"></script>
   <script src="/js/auth.js"></script>
@@ -209,18 +208,12 @@
   })();
 
   async function loadSlip(payrollId) {
-    const { data: p, error } = await supabase
-      .from('payroll')
-      .select(`
-        *, employees(nama, jabatan(nama, divisions(nama))),
-        payroll_components(*),
-        kpi_periods(total_poin, kpi_templates(nama))
-      `)
-      .eq('id', payrollId)
-      .single();
+    let arr;
+    try { arr = await sbGet('payroll', `?select=*,employees(nama,jabatan(nama,divisions(nama))),payroll_components(*),kpi_periods(total_poin,kpi_templates(nama))&id=eq.${payrollId}&limit=1`, getToken()); } catch {}
+    const p = arr?.[0];
 
-    if (error || !p) {
-      document.getElementById('slipPaper').innerHTML = '<div class="alert alert-error">Data payroll tidak ditemukan.</div>';
+    if (!p) {
+      document.getElementById('slipPaper').innerHTML = '<p style="color:red;padding:20px;">Data payroll tidak ditemukan.</p>';
       return;
     }
 
@@ -289,7 +282,8 @@
     const kpiData = p.kpi_periods;
     const totalPoin = kpiData ? Number(kpiData.total_poin) : 0;
 
-    const { data: pkRules } = await supabase.from('pengkali_rules').select('*').order('min_poin', { ascending: false });
+    let pkRules;
+    try { pkRules = await sbGet('pengkali_rules', '?select=*&order=min_poin.desc', getToken()); } catch {}
     const rule = pkRules?.find(r => totalPoin >= r.min_poin && totalPoin <= r.max_poin);
 
     document.getElementById('slipTotalPoin').textContent = totalPoin.toLocaleString('id');

@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Produk — KPI & Gaji System</title>
   <link rel="stylesheet" href="/css/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/js/config.js"></script>
   <script src="/js/auth.js"></script>
 </head>
@@ -129,11 +128,13 @@
     const tbody = document.getElementById('productTableBody');
     tbody.innerHTML = '<tr class="loading-row"><td colspan="6"><div class="spinner spinner-sm" style="margin:auto;"></div></td></tr>';
 
-    let query = supabase.from('products').select('*').order('nama');
-    if (status) query = query.eq('status', status);
+    let queryStr = '?select=*&order=nama';
+    if (status) queryStr += `&status=eq.${status}`;
 
-    const { data, error } = await query;
-    if (error) { tbody.innerHTML = `<tr><td colspan="6">${error.message}</td></tr>`; return; }
+    let data;
+    try {
+      data = await sbGet('products', queryStr, getToken());
+    } catch(e) { tbody.innerHTML = `<tr><td colspan="6">${e.message}</td></tr>`; return; }
 
     allProducts = data || [];
     document.getElementById('productCount').textContent = `${allProducts.length} produk`;
@@ -201,14 +202,13 @@
     };
     if (!data.nama) { showToast('Nama produk wajib diisi.', 'error'); return; }
 
-    let error;
-    if (id) {
-      ({ error } = await supabase.from('products').update(data).eq('id', id));
-    } else {
-      ({ error } = await supabase.from('products').insert(data));
-    }
-
-    if (error) { showToast('Gagal: ' + error.message, 'error'); return; }
+    try {
+      if (id) {
+        await sbPatch('products', `?id=eq.${id}`, data, getToken());
+      } else {
+        await sbPost('products', data, getToken());
+      }
+    } catch(e) { showToast('Gagal: ' + e.message, 'error'); return; }
     showToast('Produk berhasil disimpan.', 'success');
     closeModal('modalProduct');
     await loadProducts();
@@ -216,8 +216,9 @@
 
   async function deleteProduct(id) {
     if (!confirm('Hapus produk ini?')) return;
-    const { error } = await supabase.from('products').delete().eq('id', id);
-    if (error) { showToast('Gagal menghapus: ' + error.message, 'error'); return; }
+    try {
+      await sbDelete('products', `?id=eq.${id}`, getToken());
+    } catch(e) { showToast('Gagal menghapus: ' + e.message, 'error'); return; }
     showToast('Produk dihapus.', 'success');
     await loadProducts();
   }

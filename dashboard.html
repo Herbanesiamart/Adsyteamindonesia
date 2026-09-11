@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard — KPI & Gaji System</title>
   <link rel="stylesheet" href="/css/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/js/config.js"></script>
   <script src="/js/auth.js"></script>
 </head>
@@ -121,8 +120,10 @@
     loadKPITable();
     loadQuickActions();
     // Load pengkali
-    const { data } = await supabase.from('pengkali_rules').select('*').order('min_poin', { ascending: false });
-    if (data) pengkaliRules = data;
+    try {
+      const data = await sbGet('pengkali_rules', '?select=*&order=min_poin.desc', getToken());
+      if (data) pengkaliRules = data;
+    } catch {}
   })();
 
   function initPeriodFilter() {
@@ -142,11 +143,12 @@
   async function loadStats() {
     const period = getCurrentPeriod();
     const role = currentEmployee.role;
+    const token = getToken();
 
     try {
       // Total karyawan
       if (['hr', 'ceo', 'finance'].includes(role)) {
-        const { count } = await supabase.from('employees').select('id', { count: 'exact', head: true }).eq('status', 'aktif');
+        const count = await sbCount('employees', '?status=eq.aktif', token);
         document.getElementById('statTotalKaryawan').textContent = count ?? '—';
         document.getElementById('statKaryawanSub').textContent = 'karyawan aktif';
       } else {
@@ -155,10 +157,10 @@
       }
 
       // KPI bulan ini
-      let kpiQuery = supabase.from('kpi_periods').select('id, total_poin', { count: 'exact' }).eq('period', period);
-      if (role === 'karyawan') kpiQuery = kpiQuery.eq('employee_id', currentEmployee.id);
-      const { data: kpiData, count: kpiCount } = await kpiQuery;
-      document.getElementById('statKPICount').textContent = kpiCount ?? 0;
+      let kpiQuery = `?select=id,total_poin&period=eq.${period}`;
+      if (role === 'karyawan') kpiQuery += `&employee_id=eq.${currentEmployee.id}`;
+      const kpiData = await sbGet('kpi_periods', kpiQuery, token);
+      document.getElementById('statKPICount').textContent = kpiData ? kpiData.length : 0;
 
       // Rata-rata poin
       if (kpiData && kpiData.length > 0) {
@@ -170,11 +172,11 @@
 
       // Total payroll
       if (['finance', 'ceo'].includes(role)) {
-        const { data: plData } = await supabase.from('payroll').select('net_gaji').eq('period', period);
+        const plData = await sbGet('payroll', `?select=net_gaji&period=eq.${period}`, token);
         const total = plData ? plData.reduce((s, r) => s + (Number(r.net_gaji) || 0), 0) : 0;
         document.getElementById('statTotalPayroll').textContent = formatRupiah(total);
       } else {
-        const { data: ownPLArr } = await supabase.from('payroll').select('net_gaji').eq('period', period).eq('employee_id', currentEmployee.id).limit(1);
+        const ownPLArr = await sbGet('payroll', `?select=net_gaji&period=eq.${period}&employee_id=eq.${currentEmployee.id}&limit=1`, token);
         const ownPL = ownPLArr?.[0] || null;
         document.getElementById('statTotalPayroll').textContent = ownPL ? formatRupiah(ownPL.net_gaji) : 'Rp 0';
       }
@@ -187,24 +189,15 @@
     const period = document.getElementById('periodFilter').value;
     const tbody = document.getElementById('kpiTableBody');
     tbody.innerHTML = '<tr class="loading-row"><td colspan="7"><div class="spinner spinner-sm" style="margin:auto;"></div></td></tr>';
+    const token = getToken();
 
     try {
-      let query = supabase
-        .from('kpi_periods')
-        .select(`
-          id, period, total_poin, status, submitted_at,
-          employees!kpi_periods_employee_id_fkey(nama, jabatan(nama))
-        `)
-        .eq('period', period)
-        .order('submitted_at', { ascending: false })
-        .limit(20);
-
+      let query = `?select=id,period,total_poin,status,submitted_at,employees!kpi_periods_employee_id_fkey(nama,jabatan(nama))&period=eq.${period}&order=submitted_at.desc&limit=20`;
       if (currentEmployee.role === 'karyawan') {
-        query = query.eq('employee_id', currentEmployee.id);
+        query += `&employee_id=eq.${currentEmployee.id}`;
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
+      const data = await sbGet('kpi_periods', query, token);
 
       if (!data || data.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted" style="padding:40px;">Belum ada data KPI untuk periode ini.</td></tr>';
@@ -231,7 +224,7 @@
             <td>${grade}</td>
             <td>${statusBadge}</td>
             <td>
-              <a href="/kpi/view.html?period=${row.period}&employee_id=${row.employees ? '' : currentEmployee.id}" class="btn btn-sm btn-secondary">Detail</a>
+              <a href="/kpi/view.html?period=${row.period}" class="btn btn-sm btn-secondary">Detail</a>
             </td>
           </tr>
         `;

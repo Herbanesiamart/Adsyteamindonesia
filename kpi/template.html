@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Template KPI — KPI & Gaji System</title>
   <link rel="stylesheet" href="/css/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/js/config.js"></script>
   <script src="/js/auth.js"></script>
 </head>
@@ -170,7 +169,8 @@
   })();
 
   async function loadJabatan() {
-    const { data } = await supabase.from('jabatan').select('id, nama, divisions(nama)').order('nama');
+    const token = getToken();
+    const data = await sbGet('jabatan', '?select=id,nama,divisions(nama)&order=nama', token);
     jabatanList = data || [];
     const filter = document.getElementById('jabatanFilter');
     const templateJab = document.getElementById('templateJabatan');
@@ -185,25 +185,24 @@
     const jabatanId = document.getElementById('jabatanFilter').value;
     const container = document.getElementById('templateList');
     container.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
+    const token = getToken();
 
-    let query = supabase
-      .from('kpi_templates')
-      .select(`id, nama, omzet_target, is_active, jabatan(nama, divisions(nama)),
-               kpi_sections(id, nama, type, urutan, kpi_indicators(id, nama, type, bobot, point_total, config, urutan))`)
-      .order('nama');
-    if (jabatanId) query = query.eq('jabatan_id', jabatanId);
+    let query = '?select=id,nama,omzet_target,is_active,jabatan_id,jabatan(nama,divisions(nama)),kpi_sections(id,nama,type,urutan,kpi_indicators(id,nama,type,bobot,point_total,config,urutan))&order=nama';
+    if (jabatanId) query += `&jabatan_id=eq.${jabatanId}`;
 
-    const { data, error } = await query;
-    if (error) { container.innerHTML = `<div class="alert alert-error">${error.message}</div>`; return; }
+    try {
+      const data = await sbGet('kpi_templates', query, token);
+      templates = data || [];
 
-    templates = data || [];
+      if (templates.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">&#128196;</div><div class="empty-state-title">Belum ada template</div><div class="empty-state-text">Klik "Tambah Template" untuk membuat template KPI baru.</div></div>';
+        return;
+      }
 
-    if (templates.length === 0) {
-      container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">&#128196;</div><div class="empty-state-title">Belum ada template</div><div class="empty-state-text">Klik "Tambah Template" untuk membuat template KPI baru.</div></div>';
-      return;
+      container.innerHTML = templates.map(t => renderTemplate(t)).join('');
+    } catch (err) {
+      container.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
     }
-
-    container.innerHTML = templates.map(t => renderTemplate(t)).join('');
   }
 
   function renderTemplate(t) {
@@ -324,33 +323,38 @@
 
   async function saveTemplate() {
     const id = document.getElementById('templateId').value;
-    const data = {
+    const body = {
       jabatan_id: document.getElementById('templateJabatan').value,
       nama: document.getElementById('templateNama').value.trim(),
       omzet_target: Number(document.getElementById('templateOmzet').value) || 0,
     };
-    if (!data.jabatan_id || !data.nama) { showToast('Jabatan dan nama wajib diisi.', 'error'); return; }
+    if (!body.jabatan_id || !body.nama) { showToast('Jabatan dan nama wajib diisi.', 'error'); return; }
 
     showLoading(true);
-    let error;
-    if (id) {
-      ({ error } = await supabase.from('kpi_templates').update(data).eq('id', id));
-    } else {
-      ({ error } = await supabase.from('kpi_templates').insert(data));
+    try {
+      if (id) {
+        await sbPatch('kpi_templates', `?id=eq.${id}`, body, getToken());
+      } else {
+        await sbPost('kpi_templates', body, getToken());
+      }
+      showToast('Template berhasil disimpan.', 'success');
+      closeModal('modalTemplate');
+      await loadTemplates();
+    } catch (err) {
+      showToast('Gagal: ' + err.message, 'error');
     }
     showLoading(false);
-    if (error) { showToast('Gagal: ' + error.message, 'error'); return; }
-    showToast('Template berhasil disimpan.', 'success');
-    closeModal('modalTemplate');
-    await loadTemplates();
   }
 
   async function deleteTemplate(id) {
     if (!confirm('Hapus template ini? Semua seksi dan indikator akan ikut terhapus.')) return;
-    const { error } = await supabase.from('kpi_templates').delete().eq('id', id);
-    if (error) { showToast('Gagal: ' + error.message, 'error'); return; }
-    showToast('Template dihapus.', 'success');
-    await loadTemplates();
+    try {
+      await sbDelete('kpi_templates', `?id=eq.${id}`, getToken());
+      showToast('Template dihapus.', 'success');
+      await loadTemplates();
+    } catch (err) {
+      showToast('Gagal: ' + err.message, 'error');
+    }
   }
 
   // SECTION CRUD
@@ -374,31 +378,36 @@
 
   async function saveSection() {
     const id = document.getElementById('sectionId').value;
-    const data = {
+    const body = {
       template_id: document.getElementById('sectionTemplateId').value,
       nama: document.getElementById('sectionNama').value.trim(),
       type: document.getElementById('sectionType').value,
     };
-    if (!data.nama) { showToast('Nama seksi wajib diisi.', 'error'); return; }
+    if (!body.nama) { showToast('Nama seksi wajib diisi.', 'error'); return; }
 
-    let error;
-    if (id) {
-      ({ error } = await supabase.from('kpi_sections').update(data).eq('id', id));
-    } else {
-      ({ error } = await supabase.from('kpi_sections').insert(data));
+    try {
+      if (id) {
+        await sbPatch('kpi_sections', `?id=eq.${id}`, body, getToken());
+      } else {
+        await sbPost('kpi_sections', body, getToken());
+      }
+      showToast('Seksi berhasil disimpan.', 'success');
+      closeModal('modalSection');
+      await loadTemplates();
+    } catch (err) {
+      showToast('Gagal: ' + err.message, 'error');
     }
-    if (error) { showToast('Gagal: ' + error.message, 'error'); return; }
-    showToast('Seksi berhasil disimpan.', 'success');
-    closeModal('modalSection');
-    await loadTemplates();
   }
 
   async function deleteSection(id) {
     if (!confirm('Hapus seksi ini beserta semua indikatornya?')) return;
-    const { error } = await supabase.from('kpi_sections').delete().eq('id', id);
-    if (error) { showToast('Gagal: ' + error.message, 'error'); return; }
-    showToast('Seksi dihapus.', 'success');
-    await loadTemplates();
+    try {
+      await sbDelete('kpi_sections', `?id=eq.${id}`, getToken());
+      showToast('Seksi dihapus.', 'success');
+      await loadTemplates();
+    } catch (err) {
+      showToast('Gagal: ' + err.message, 'error');
+    }
   }
 
   // INDICATOR CRUD
@@ -488,7 +497,6 @@
   }
 
   function getIndicatorConfig() {
-    const type = document.getElementById('indicatorType').value;
     const cfg = {};
     const ppu = document.getElementById('cfg_point_per_unit');
     const thr = document.getElementById('cfg_threshold');
@@ -502,7 +510,7 @@
   async function saveIndicator() {
     const id = document.getElementById('indicatorId').value;
     const bobot = Number(document.getElementById('indicatorBobot').value) || 0;
-    const data = {
+    const body = {
       section_id: document.getElementById('indicatorSectionId').value,
       nama: document.getElementById('indicatorNama').value.trim(),
       type: document.getElementById('indicatorType').value,
@@ -510,26 +518,31 @@
       point_total: bobot * 1000,
       config: getIndicatorConfig(),
     };
-    if (!data.nama || !data.bobot) { showToast('Nama dan bobot wajib diisi.', 'error'); return; }
+    if (!body.nama || !body.bobot) { showToast('Nama dan bobot wajib diisi.', 'error'); return; }
 
-    let error;
-    if (id) {
-      ({ error } = await supabase.from('kpi_indicators').update(data).eq('id', id));
-    } else {
-      ({ error } = await supabase.from('kpi_indicators').insert(data));
+    try {
+      if (id) {
+        await sbPatch('kpi_indicators', `?id=eq.${id}`, body, getToken());
+      } else {
+        await sbPost('kpi_indicators', body, getToken());
+      }
+      showToast('Indikator berhasil disimpan.', 'success');
+      closeModal('modalIndicator');
+      await loadTemplates();
+    } catch (err) {
+      showToast('Gagal: ' + err.message, 'error');
     }
-    if (error) { showToast('Gagal: ' + error.message, 'error'); return; }
-    showToast('Indikator berhasil disimpan.', 'success');
-    closeModal('modalIndicator');
-    await loadTemplates();
   }
 
   async function deleteIndicator(id) {
     if (!confirm('Hapus indikator ini?')) return;
-    const { error } = await supabase.from('kpi_indicators').delete().eq('id', id);
-    if (error) { showToast('Gagal: ' + error.message, 'error'); return; }
-    showToast('Indikator dihapus.', 'success');
-    await loadTemplates();
+    try {
+      await sbDelete('kpi_indicators', `?id=eq.${id}`, getToken());
+      showToast('Indikator dihapus.', 'success');
+      await loadTemplates();
+    } catch (err) {
+      showToast('Gagal: ' + err.message, 'error');
+    }
   }
 
   // Init config render
